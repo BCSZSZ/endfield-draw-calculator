@@ -24,17 +24,25 @@ THEME = {
 st.markdown(
     f"""
 <style>
-html, body, [class*="css"], [class*="st"], * {{
-    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
+html, body {
+        font
+        - family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
     color: {THEME["text"]};
-}}
+}
 
-input, textarea, select, button, label, span, p, div {{
-    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
-}}
+h1, h2, h3, h4, h5, h6, p, label, span, div, input, textarea, select, button {
+        font
+        - family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
+}
+
+svg, [data-testid="stSidebarCollapseButton"] svg {
+        font - family: inherit !important;
+}
 
 .stApp {{
-    background: radial-gradient(1200px 600px at 15% -10%, #132230 0%, {THEME["bg"]} 55%);
+    background: radial-gradient(1200px 600px at 15% -10%, #132230 0%, {
+        THEME["bg"]
+    } 55%);
 }}
 
 [data-testid="stSidebar"] > div:first-child {{
