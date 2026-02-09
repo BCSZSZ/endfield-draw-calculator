@@ -95,9 +95,13 @@ with st.sidebar:
         target_copies = st.slider(
             "目标UP数量", min_value=1, max_value=6, value=6, step=1
         )
-        max_sim_pulls = st.slider(
-            "最大模拟抽数", min_value=1, max_value=1200, value=800, step=30
+        max_sim_pulls_slider = st.slider(
+            "最大模拟抽数(滑块)", min_value=1, max_value=1200, value=800, step=30
         )
+        max_sim_pulls_input = st.number_input(
+            "最大模拟抽数(输入)", min_value=1, max_value=1200, value=max_sim_pulls_slider, step=1
+        )
+        max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_exact_full_potential
         unit_label = "抽数"
         xaxis_label = "抽数(Pulls)"
@@ -107,9 +111,13 @@ with st.sidebar:
         target_copies = st.slider(
             "目标UP数量", min_value=1, max_value=6, value=6, step=1
         )
-        max_sim_pulls = st.slider(
-            "最大10连次数", min_value=0, max_value=120, value=60, step=1
+        max_sim_pulls_slider = st.slider(
+            "最大10连次数(滑块)", min_value=1, max_value=70, value=60, step=1
         )
+        max_sim_pulls_input = st.number_input(
+            "最大10连次数(输入)", min_value=1, max_value=70, value=max_sim_pulls_slider, step=1
+        )
+        max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_weapon_full_potential
         unit_label = "10连次数"
         xaxis_label = "10连次数"
