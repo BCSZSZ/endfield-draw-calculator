@@ -100,6 +100,29 @@ with st.sidebar:
         target_copies = st.slider(
             "目标UP数量", min_value=1, max_value=6, value=6, step=1
         )
+        if "initial_pity_input" not in st.session_state:
+            st.session_state.initial_pity_input = 0
+        if "initial_pity_slider" not in st.session_state:
+            st.session_state.initial_pity_slider = 0
+
+        initial_pity_slider = st.slider(
+            "初始水位(滑块)",
+            min_value=0,
+            max_value=79,
+            step=1,
+            key="initial_pity_slider",
+            on_change=_sync_value,
+            args=("initial_pity_input", "initial_pity_slider"),
+        )
+        initial_pity_input = st.number_input(
+            "初始水位(输入)",
+            min_value=0,
+            max_value=79,
+            step=1,
+            key="initial_pity_input",
+            on_change=_sync_value,
+            args=("initial_pity_slider", "initial_pity_input"),
+        )
         if "max_sim_pulls_input" not in st.session_state:
             st.session_state.max_sim_pulls_input = 800
         if "max_sim_pulls_slider" not in st.session_state:
@@ -125,6 +148,7 @@ with st.sidebar:
         )
         max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_exact_full_potential
+        initial_pity = int(initial_pity_input)
         unit_label = "抽数"
         xaxis_label = "抽数(Pulls)"
         yaxis_pmf = "恰好在该抽完成的概率(P exactly at pulls)"
@@ -158,12 +182,20 @@ with st.sidebar:
         )
         max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_weapon_full_potential
+        initial_pity = None
         unit_label = "10连次数"
         xaxis_label = "10连次数"
         yaxis_pmf = "恰好在该次完成的概率"
         yaxis_cdf = "在该次前完成的概率"
 
-result = calc(target_copies=target_copies, max_sim_pulls=max_sim_pulls)
+if mode == "干员抽卡":
+    result = calc(
+        target_copies=target_copies,
+        max_sim_pulls=max_sim_pulls,
+        initial_pity=initial_pity,
+    )
+else:
+    result = calc(target_copies=target_copies, max_sim_pulls=max_sim_pulls)
 
 costs = result["costs"]
 finish_probs = result["finish_probs"]

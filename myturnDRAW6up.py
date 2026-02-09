@@ -3,7 +3,9 @@ import math
 import numpy as np
 
 
-def calculate_exact_full_potential(target_copies=6, max_pity=80, max_sim_pulls=1500):
+def calculate_exact_full_potential(
+    target_copies=6, max_pity=80, max_sim_pulls=1500, initial_pity=0
+):
     # --- 配置参数 ---
 
     # 概率函数 (返回 UP概率, 歪概率, 不出概率)
@@ -22,7 +24,9 @@ def calculate_exact_full_potential(target_copies=6, max_pity=80, max_sim_pulls=1
     # dp[pity][copies]
     # pity: 0~80, copies: 0~6
     dp = np.zeros((max_pity + 1, target_copies + 1))
-    dp[0][0] = 1.0  # 初始状态：0水位，0个角色
+    # 初始状态：初始水位，0个角色
+    init_pity = max(0, min(int(initial_pity), max_pity))
+    dp[init_pity][0] = 1.0
 
     # 结果记录：finish_probs[cost] = 恰好在 cost 抽达成满潜的概率
     finish_probs = np.zeros(max_sim_pulls + 1)
