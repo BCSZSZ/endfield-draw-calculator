@@ -87,6 +87,10 @@ div[data-testid="stDataFrame"] {{
 
 st.title("抽卡达成目标分布")
 
+
+def _sync_value(target_key, source_key):
+    st.session_state[target_key] = st.session_state[source_key]
+
 with st.sidebar:
     st.header("模式")
     mode = st.selectbox("选择功能", ["干员抽卡", "武器抽卡"])
@@ -95,11 +99,28 @@ with st.sidebar:
         target_copies = st.slider(
             "目标UP数量", min_value=1, max_value=6, value=6, step=1
         )
+        if "max_sim_pulls_input" not in st.session_state:
+            st.session_state.max_sim_pulls_input = 800
+        if "max_sim_pulls_slider" not in st.session_state:
+            st.session_state.max_sim_pulls_slider = 800
+
         max_sim_pulls_slider = st.slider(
-            "最大模拟抽数(滑块)", min_value=1, max_value=1200, value=800, step=30
+            "最大模拟抽数(滑块)",
+            min_value=1,
+            max_value=1200,
+            step=30,
+            key="max_sim_pulls_slider",
+            on_change=_sync_value,
+            args=("max_sim_pulls_input", "max_sim_pulls_slider"),
         )
         max_sim_pulls_input = st.number_input(
-            "最大模拟抽数(输入)", min_value=1, max_value=1200, value=max_sim_pulls_slider, step=1
+            "最大模拟抽数(输入)",
+            min_value=1,
+            max_value=1200,
+            step=1,
+            key="max_sim_pulls_input",
+            on_change=_sync_value,
+            args=("max_sim_pulls_slider", "max_sim_pulls_input"),
         )
         max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_exact_full_potential
@@ -111,11 +132,28 @@ with st.sidebar:
         target_copies = st.slider(
             "目标UP数量", min_value=1, max_value=6, value=6, step=1
         )
+        if "max_sim_pulls10_input" not in st.session_state:
+            st.session_state.max_sim_pulls10_input = 60
+        if "max_sim_pulls10_slider" not in st.session_state:
+            st.session_state.max_sim_pulls10_slider = 60
+
         max_sim_pulls_slider = st.slider(
-            "最大10连次数(滑块)", min_value=1, max_value=70, value=60, step=1
+            "最大10连次数(滑块)",
+            min_value=1,
+            max_value=70,
+            step=1,
+            key="max_sim_pulls10_slider",
+            on_change=_sync_value,
+            args=("max_sim_pulls10_input", "max_sim_pulls10_slider"),
         )
         max_sim_pulls_input = st.number_input(
-            "最大10连次数(输入)", min_value=1, max_value=70, value=max_sim_pulls_slider, step=1
+            "最大10连次数(输入)",
+            min_value=1,
+            max_value=70,
+            step=1,
+            key="max_sim_pulls10_input",
+            on_change=_sync_value,
+            args=("max_sim_pulls10_slider", "max_sim_pulls10_input"),
         )
         max_sim_pulls = int(max_sim_pulls_input)
         calc = calculate_weapon_full_potential
