@@ -91,6 +91,7 @@ st.title("抽卡达成目标分布")
 def _sync_value(target_key, source_key):
     st.session_state[target_key] = st.session_state[source_key]
 
+
 with st.sidebar:
     st.header("模式")
     mode = st.selectbox("选择功能", ["干员抽卡", "武器抽卡"])

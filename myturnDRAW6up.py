@@ -115,9 +115,10 @@ def calculate_exact_full_potential(target_copies=6, max_pity=80, max_sim_pulls=1
             if target_copies == 1:
                 finish_probs[cost] += np.sum(shift_mass)
             else:
-                for p in range(max_pity + 1):
-                    if shift_mass[p] > 0:
-                        new_dp[p][1] += shift_mass[p]
+                # 120抽必出视为6星出货，重置水位
+                total_shift = np.sum(shift_mass)
+                if total_shift > 0:
+                    new_dp[0][1] += total_shift
 
         # [规则5] 240抽里程碑赠送 (循环)
         if cost % 240 == 0:
