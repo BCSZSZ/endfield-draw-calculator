@@ -26,6 +26,11 @@ st.markdown(
 <style>
 html, body {{
     color: {THEME["text"]};
+    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif;
+}}
+
+h1, h2, h3, h4, h5, h6, p, label, span, div, input, textarea, select, button {{
+    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif;
 }}
 
 .stApp {{
