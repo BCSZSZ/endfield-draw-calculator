@@ -25,16 +25,7 @@ st.markdown(
     f"""
 <style>
 html, body {{
-    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
     color: {THEME["text"]};
-}}
-
-h1, h2, h3, h4, h5, h6, p, label, span, div, input, textarea, select, button {{
-    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif !important;
-}}
-
-svg, [data-testid="stSidebarCollapseButton"] svg {{
-    font-family: inherit !important;
 }}
 
 .stApp {{
