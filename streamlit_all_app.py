@@ -7,7 +7,7 @@ import streamlit as st
 from myturnDRAW6up import calculate_exact_full_potential
 from weapon_draw import calculate_weapon_full_potential
 
-st.set_page_config(page_title="Gacha Simulator", layout="wide")
+st.set_page_config(page_title="终末地UP干员/UP武器计算", layout="wide")
 
 THEME = {
     "bg": "#0b0f14",
@@ -141,7 +141,7 @@ with st.sidebar:
         max_sim_pulls_slider = st.slider(
             "最大10连次数(滑块)",
             min_value=1,
-            max_value=70,
+            max_value=100,
             step=1,
             key="max_sim_pulls10_slider",
             on_change=_sync_value,
@@ -150,7 +150,7 @@ with st.sidebar:
         max_sim_pulls_input = st.number_input(
             "最大10连次数(输入)",
             min_value=1,
-            max_value=70,
+            max_value=100,
             step=1,
             key="max_sim_pulls10_input",
             on_change=_sync_value,
