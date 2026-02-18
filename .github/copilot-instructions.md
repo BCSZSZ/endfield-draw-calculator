@@ -67,4 +67,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+## 5\. Pythonic Clarity & Intent
+
+**Explicit over implicit. Type hints as documentation.**
+
+- **Intentional Typing:** Use Type Hints (`name: str`) for all function signatures and complex variables. It's for the human (and Copilot), not just the linter.
+- **Modern Idioms:** Use `f-strings` for formatting, `pathlib` for paths, and `dataclasses` for data structures. Avoid legacy `os.path` or `%` formatting.
+- **Defensive Coding:** No bare `except:`. Catch specific errors. Use guard clauses (`if not x: return`) to keep nesting shallow.
+- **Resource Management:** Always use `with` statements for files, locks, or network sessions. Never manually call `.close()`.
+- **Clean Iteration:** Prefer list/dict comprehensions for simple transformations. If logic is complex, use a explicit `for` loop for clarity.
+- **Dependency Awareness:** Keep `requirements.txt` or `pyproject.toml` updated. Use `venv` to isolate the environment.

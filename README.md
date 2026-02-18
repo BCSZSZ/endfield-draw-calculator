@@ -24,8 +24,16 @@ python -m venv .venv
 Install dependencies:
 
 ```powershell
-pip install numpy pandas plotly streamlit
+pip install numpy pandas pyarrow plotly streamlit
 ```
+
+For joint character+weapon precompute cache (Parquet):
+
+```powershell
+python precompute_joint_results.py
+```
+
+This generates `precomputed/joint_results.parquet` for fast lookup in Streamlit.
 
 ## Run
 
