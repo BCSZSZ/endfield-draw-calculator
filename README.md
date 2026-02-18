@@ -6,6 +6,12 @@ Two gacha calculators and one combined Streamlit app:
 - Weapon draw DP: `weapon_draw.py`
 - Combined Streamlit app: `streamlit_all_app.py`
 
+## Online Demo
+
+Direct access to the deployed Streamlit app:
+
+- https://endfield-draw-calculator.streamlit.app/
+
 ## Setup (Windows)
 
 Create and activate a virtual environment:

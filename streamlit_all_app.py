@@ -10,8 +10,7 @@ from weapon_draw import calculate_weapon_full_potential
 st.set_page_config(page_title="终末地UP干员/UP武器计算", layout="wide")
 
 THEME = {
-    "bg": "#0b0f14",
-    "panel": "#141b24",
+    "panel": "#0f141b",
     "panel_alt": "#0f141b",
     "text": "#e6eef7",
     "muted": "#9fb0c1",
@@ -24,22 +23,8 @@ THEME = {
 st.markdown(
     f"""
 <style>
-html, body {{
-    color: {THEME["text"]};
-    font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif;
-}}
-
 h1, h2, h3, h4, h5, h6, p, label, span, div, input, textarea, select, button {{
     font-family: "SimSun", "NSimSun", "FangSong", "STFangsong", "Songti SC", serif;
-}}
-
-.stApp {{
-    background: radial-gradient(1200px 600px at 15% -10%, #132230 0%, {THEME["bg"]} 55%);
-}}
-
-[data-testid="stSidebar"] > div:first-child {{
-    background: {THEME["panel_alt"]};
-    border-right: 1px solid {THEME["grid"]};
 }}
 
 h1, h2, h3 {{
@@ -323,8 +308,8 @@ pmf_fig.update_layout(
     xaxis_title=xaxis_label,
     yaxis_title=yaxis_pmf,
     font=dict(color=THEME["text"]),
-    paper_bgcolor=THEME["panel"],
-    plot_bgcolor=THEME["panel"],
+    paper_bgcolor=THEME["panel_alt"],
+    plot_bgcolor=THEME["panel_alt"],
     xaxis=dict(gridcolor=THEME["grid"]),
     yaxis=dict(gridcolor=THEME["grid"]),
 )
@@ -344,8 +329,8 @@ cdf_fig.update_layout(
     xaxis_title=xaxis_label,
     yaxis_title=yaxis_cdf,
     font=dict(color=THEME["text"]),
-    paper_bgcolor=THEME["panel"],
-    plot_bgcolor=THEME["panel"],
+    paper_bgcolor=THEME["panel_alt"],
+    plot_bgcolor=THEME["panel_alt"],
     xaxis=dict(gridcolor=THEME["grid"]),
     yaxis=dict(gridcolor=THEME["grid"]),
 )
