@@ -135,9 +135,7 @@ def render_joint_page() -> None:
 
     if precomputed_hit:
         result = precomputed_hit["result"]
-        st.success("命中预计算结果（秒级展示）")
     else:
-        st.warning("未命中预计算，正在执行实时计算（参数较大时可能较慢）")
         result = calculate_joint_cached(
             character_pulls=int(character_pulls),
             target_up_characters=int(target_up_characters),
@@ -157,48 +155,6 @@ def render_joint_page() -> None:
     col4.metric("6星期望", f"{result['expected_six_star_count']:.6f}")
     col5.metric("武器配额期望", f"{result['expected_weapon_quota']:.6f}")
     col6.metric("武器十连期望", f"{result['expected_weapon_ten_pulls']:.6f}")
-
-    st.subheader("概率曲线")
-    curve_rows: list[dict] = []
-    available_count = 0
-    for pulls in range(1, int(character_pulls) + 1):
-        key = make_joint_scenario_key(
-            character_pulls=pulls,
-            target_up_characters=int(target_up_characters),
-            target_up_weapons=int(target_up_weapons),
-            initial_six_pity=0,
-            initial_five_pity=0,
-            keep_legacy_bonus_rules=FIXED_KEEP_LEGACY_BONUS_RULES,
-            drop_threshold=FIXED_DROP_THRESHOLD,
-        )
-        hit = precomputed.get("results", {}).get(key)
-        if not hit:
-            continue
-        available_count += 1
-        r = hit["result"]
-        curve_rows.append(
-            {
-                "角色抽数": pulls,
-                "综合概率(%)": float(r["final_probability"]) * 100.0,
-                "角色目标概率(%)": float(r["character_only_probability"]) * 100.0,
-                "武器目标概率(%)": float(r["weapon_only_probability"]) * 100.0,
-            }
-        )
-
-    if curve_rows:
-        curve_df = pd.DataFrame(curve_rows).sort_values("角色抽数")
-        st.line_chart(
-            data=curve_df,
-            x="角色抽数",
-            y=["综合概率(%)", "角色目标概率(%)", "武器目标概率(%)"],
-            height=320,
-        )
-        if available_count < int(character_pulls):
-            st.info(
-                f"当前曲线使用预计算数据点 {available_count}/{int(character_pulls)}。未覆盖抽数未绘制。"
-            )
-    else:
-        st.info("当前参数在预计算表中暂无可绘制曲线数据。")
 
     st.subheader("目标综合概率反算角色抽数")
     target_joint_prob_percent = st.number_input(
