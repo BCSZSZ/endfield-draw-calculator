@@ -198,9 +198,9 @@ def print_result(target_copies, result):
     print(f"非酋线 (Top 99%): {result['p99']} 抽")
 
 
-# --- 执行并输出 ---
-result_1 = calculate_exact_full_potential(1)
-print_result(1, result_1)
+if __name__ == "__main__":
+    result_1 = calculate_exact_full_potential(1)
+    print_result(1, result_1)
 
-result_6 = calculate_exact_full_potential(6)
-print_result(6, result_6)
+    result_6 = calculate_exact_full_potential(6)
+    print_result(6, result_6)
