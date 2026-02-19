@@ -10,20 +10,36 @@ from joint_character_weapon_dp import (
     make_joint_scenario_key,
 )
 
-PRECOMPUTED_PATH = Path("precomputed/joint_results.parquet")
+PRECOMPUTED_DATASET_PATH = Path("precomputed/joint_results_dataset")
+LEGACY_PRECOMPUTED_PATH = Path("precomputed/joint_results.parquet")
 FIXED_KEEP_LEGACY_BONUS_RULES = True
-FIXED_DROP_THRESHOLD = 1e-16
+FIXED_DROP_THRESHOLD = 1e-10
 
 
 @st.cache_data(show_spinner=False)
-def load_precomputed_results(path: str = str(PRECOMPUTED_PATH)) -> dict:
-    file_path = Path(path)
-    if not file_path.exists():
+def load_precomputed_results(path: str | None = None) -> dict:
+    paths: list[Path]
+    if path:
+        paths = [Path(path)]
+    else:
+        paths = [LEGACY_PRECOMPUTED_PATH, PRECOMPUTED_DATASET_PATH]
+
+    tables: list[pd.DataFrame] = []
+    for file_path in paths:
+        if not file_path.exists():
+            continue
+        table = pd.read_parquet(file_path)
+        if not table.empty:
+            tables.append(table)
+
+    if not tables:
         return {"meta": {}, "results": {}}
 
-    table = pd.read_parquet(file_path)
-    if table.empty:
-        return {"meta": {}, "results": {}}
+    if len(tables) == 1:
+        table = tables[0]
+    else:
+        table = pd.concat(tables, ignore_index=True)
+        table = table.drop_duplicates(subset=["scenario_key"], keep="last")
 
     results: dict[str, dict] = {}
     for row in table.to_dict(orient="records"):
@@ -114,7 +130,9 @@ def render_joint_page() -> None:
         character_pulls = st.number_input(
             "角色抽数 X", min_value=1, max_value=720, value=120, step=1
         )
-        target_up_characters = st.slider("角色目标 a", min_value=1, max_value=6, value=1)
+        target_up_characters = st.slider(
+            "角色目标 a", min_value=1, max_value=6, value=1
+        )
         target_up_weapons = st.slider("武器目标 b", min_value=1, max_value=6, value=1)
 
     st.subheader("联合目标（角色 + 武器）")
@@ -147,7 +165,9 @@ def render_joint_page() -> None:
         )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("达成角色目标概率", f"{result['character_only_probability'] * 100:.6f}%")
+    col1.metric(
+        "达成角色目标概率", f"{result['character_only_probability'] * 100:.6f}%"
+    )
     col2.metric("达成武器目标概率", f"{result['weapon_only_probability'] * 100:.6f}%")
     col3.metric("综合概率", f"{result['final_probability'] * 100:.6f}%")
 

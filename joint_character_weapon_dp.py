@@ -38,7 +38,7 @@ def make_joint_scenario_key(
     initial_six_pity: int = 0,
     initial_five_pity: int = 0,
     keep_legacy_bonus_rules: bool = True,
-    drop_threshold: float = 1e-16,
+    drop_threshold: float = 1e-10,
 ) -> str:
     return "|".join(
         [
@@ -61,7 +61,36 @@ def _six_star_rate(pity6: int) -> float:
     return 1.0
 
 
+def _build_normal_tier_table() -> tuple[
+    tuple[tuple[float, float, float, float], ...], ...
+]:
+    table: list[tuple[float, float, float, float]] = []
+    rows: list[tuple[tuple[float, float, float, float], ...]] = []
+    for pity6 in range(81):
+        table = []
+        p6 = _six_star_rate(pity6)
+        p6_up = 0.5 * p6
+        p6_off = 0.5 * p6
+        for pity5 in range(10):
+            if pity5 >= 9:
+                p5 = 1.0 - p6
+                p4 = 0.0
+            else:
+                p5_base = 0.08
+                p5 = min(p5_base, 1.0 - p6)
+                p4 = max(0.0, 1.0 - p6 - p5)
+            table.append((p6_up, p6_off, p5, p4))
+        rows.append(tuple(table))
+    return tuple(rows)
+
+
+_NORMAL_TIER_TABLE = _build_normal_tier_table()
+
+
 def _normal_tier_probs(pity6: int, pity5: int) -> tuple[float, float, float, float]:
+    if 0 <= pity6 <= 80 and 0 <= pity5 <= 9:
+        return _NORMAL_TIER_TABLE[pity6][pity5]
+
     p6 = _six_star_rate(pity6)
     p6_up = 0.5 * p6
     p6_off = 0.5 * p6
@@ -131,7 +160,7 @@ def calculate_joint_character_weapon_probability(
     initial_six_pity: int = 0,
     initial_five_pity: int = 0,
     keep_legacy_bonus_rules: bool = True,
-    drop_threshold: float = 1e-16,
+    drop_threshold: float = 1e-10,
 ) -> JointProbabilityResult:
     character_pulls = max(0, int(character_pulls))
     target_up_characters = max(0, int(target_up_characters))
