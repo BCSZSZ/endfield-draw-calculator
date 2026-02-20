@@ -136,7 +136,6 @@ def render_joint_page() -> None:
         target_up_weapons = st.slider("武器目标 b", min_value=1, max_value=6, value=1)
 
     st.subheader("联合目标（角色 + 武器）")
-    st.caption("优先读取预计算结果；未命中时自动使用缓存计算。初始 pity 固定为 0/0。")
 
     scenario_key = make_joint_scenario_key(
         character_pulls=int(character_pulls),
@@ -153,7 +152,6 @@ def render_joint_page() -> None:
 
     if precomputed_hit:
         result = precomputed_hit["result"]
-        source_label = "预计算 Parquet 命中"
     else:
         result = calculate_joint_cached(
             character_pulls=int(character_pulls),
@@ -164,9 +162,6 @@ def render_joint_page() -> None:
             keep_legacy_bonus_rules=FIXED_KEEP_LEGACY_BONUS_RULES,
             drop_threshold=FIXED_DROP_THRESHOLD,
         )
-        source_label = "实时计算（未命中预计算）"
-
-    st.caption(f"当前结果来源：{source_label}")
 
     col1, col2, col3 = st.columns(3)
     col1.metric(
@@ -182,13 +177,11 @@ def render_joint_page() -> None:
 
     st.subheader("目标综合概率反算角色抽数")
     target_joint_prob_percent = st.number_input(
-        "目标综合概率(%)", min_value=0.01, max_value=99.99, value=50.0, step=0.1
+        "目标综合概率(%)", min_value=0.0, max_value=99.99, value=50.0, step=0.01
     )
     if st.button("反算最小角色抽数", use_container_width=True):
         target_joint_prob = float(target_joint_prob_percent) / 100.0
         found_pulls: int | None = None
-        source_precomputed = 0
-        source_realtime = 0
 
         for pulls in range(1, 721):
             prob_result, from_precomputed = _get_result_for_pulls(
@@ -197,10 +190,6 @@ def render_joint_page() -> None:
                 target_up_weapons=int(target_up_weapons),
                 precomputed_results=precomputed,
             )
-            if from_precomputed:
-                source_precomputed += 1
-            else:
-                source_realtime += 1
 
             if float(prob_result["final_probability"]) >= target_joint_prob:
                 found_pulls = pulls
@@ -210,6 +199,3 @@ def render_joint_page() -> None:
             st.warning("在 1-720 抽范围内未达到该综合概率目标。")
         else:
             st.success(f"最小角色抽数 = {found_pulls}")
-            st.caption(
-                f"反算过程数据来源：预计算 {source_precomputed} 抽点，实时计算 {source_realtime} 抽点。"
-            )
