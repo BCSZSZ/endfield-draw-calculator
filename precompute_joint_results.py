@@ -11,7 +11,10 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 from joint_character_weapon_dp import (
-    _apply_up_bonus_binomial,
+    _apply_up_bonus_binomial_layered_encoded,
+    _decode_state_id,
+    _effective_drop_threshold,
+    _encode_state_id,
     _get_weapon_cdf,
     _normal_tier_probs,
     _weapon_ten_pulls_from_quota_units,
@@ -287,12 +290,29 @@ def run_precompute_grid_incremental(
     weapon_targets = list(range(min_weapon_target, max_weapon_target + 1))
 
     up_cap = max_char_target
-    states: dict[tuple[int, int, int, int], float] = {(0, 0, 0, 0): 1.0}
-    expected_six_star_count = 0.0
+    transition_cache: dict[
+        int, tuple[float, float, float, float, int, int, int, int]
+    ] = {}
+    for p6 in range(81):
+        for p5 in range(10):
+            p6_up, p6_off, p5_star, p4_star = _normal_tier_probs(p6, p5)
+            p6_next = min(80, p6 + 1)
+            p5_next = min(9, p5 + 1)
+            for up in range(up_cap + 1):
+                state_id = _encode_state_id(p6, p5, up)
+                transition_cache[state_id] = (
+                    p6_up,
+                    p6_off,
+                    p5_star,
+                    p4_star,
+                    _encode_state_id(0, 0, min(up_cap, up + 1)),
+                    _encode_state_id(0, 0, up),
+                    _encode_state_id(p6_next, 0, up),
+                    _encode_state_id(p6_next, p5_next, up),
+                )
 
-    # 预分配两个字典用于复用
-    states_buffer_a: dict[tuple[int, int, int, int], float] = {}
-    states_buffer_b: dict[tuple[int, int, int, int], float] = {}
+    states: dict[int, dict[int, float]] = {_encode_state_id(0, 0, 0): {0: 1.0}}
+    expected_six_star_count = 0.0
 
     max_quota_units_upper = 100 * max_pulls + (
         100 if keep_legacy_bonus_rules and max_pulls >= 120 else 0
@@ -320,54 +340,107 @@ def run_precompute_grid_incremental(
     char_mass_by_a_m = np.zeros((len(char_targets), m_values.size), dtype=float)
 
     for draw in range(1, max_pulls + 1):
-        # 使用defaultdict减少字典查询开销
-        next_states: dict[tuple[int, int, int, int], float] = defaultdict(float)
+        next_states: dict[int, dict[int, float]] = {}
 
-        for (p6, p5, up, quota_units), mass in states.items():
-            if mass <= 0.0:
-                continue
+        for state_id, quota_mass_map in states.items():
+            (
+                p6_up,
+                p6_off,
+                p5_star,
+                p4_star,
+                next_id_6_up,
+                next_id_6_off,
+                next_id_5,
+                next_id_4,
+            ) = transition_cache[state_id]
 
-            p6_up, p6_off, p5_star, p4_star = _normal_tier_probs(p6, p5)
-            expected_six_star_count += mass * (p6_up + p6_off)
+            for quota_units, mass in quota_mass_map.items():
+                if mass <= 0.0:
+                    continue
 
-            if p6_up > 0.0:
-                key = (0, 0, min(up_cap, up + 1), quota_units + 100)
-                next_states[key] += mass * p6_up
+                expected_six_star_count += mass * (p6_up + p6_off)
 
-            if p6_off > 0.0:
-                key = (0, 0, up, quota_units + 100)
-                next_states[key] += mass * p6_off
+                if p6_up > 0.0:
+                    q2 = quota_units + 100
+                    key_map = next_states.get(next_id_6_up)
+                    if key_map is None:
+                        next_states[next_id_6_up] = {q2: mass * p6_up}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_up
 
-            if p5_star > 0.0:
-                key = (min(80, p6 + 1), 0, up, quota_units + 10)
-                next_states[key] += mass * p5_star
+                if p6_off > 0.0:
+                    q2 = quota_units + 100
+                    key_map = next_states.get(next_id_6_off)
+                    if key_map is None:
+                        next_states[next_id_6_off] = {q2: mass * p6_off}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_off
 
-            if p4_star > 0.0:
-                key = (min(80, p6 + 1), min(9, p5 + 1), up, quota_units + 1)
-                next_states[key] += mass * p4_star
+                if p5_star > 0.0:
+                    q2 = quota_units + 10
+                    key_map = next_states.get(next_id_5)
+                    if key_map is None:
+                        next_states[next_id_5] = {q2: mass * p5_star}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p5_star
+
+                if p4_star > 0.0:
+                    q2 = quota_units + 1
+                    key_map = next_states.get(next_id_4)
+                    if key_map is None:
+                        next_states[next_id_4] = {q2: mass * p4_star}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p4_star
 
         if keep_legacy_bonus_rules and draw == 30:
-            next_states = _apply_up_bonus_binomial(next_states, up_cap=up_cap)
+            next_states = _apply_up_bonus_binomial_layered_encoded(
+                next_states, up_cap=up_cap
+            )
 
         if keep_legacy_bonus_rules and draw == 120:
-            adjusted: dict[tuple[int, int, int, int], float] = defaultdict(float)
-            for (p6, p5, up, quota_units), mass in next_states.items():
-                if up == 0:
-                    expected_six_star_count += mass
-                    key = (0, 0, min(up_cap, 1), quota_units + 100)
-                else:
-                    key = (p6, p5, up, quota_units)
-                adjusted[key] += mass
+            adjusted: dict[int, dict[int, float]] = {}
+            for state_id, quota_mass_map in next_states.items():
+                p6, p5, up = _decode_state_id(state_id)
+                for quota_units, mass in quota_mass_map.items():
+                    if up == 0:
+                        expected_six_star_count += mass
+                        next_id = _encode_state_id(0, 0, min(up_cap, 1))
+                        q2 = quota_units + 100
+                    else:
+                        next_id = state_id
+                        q2 = quota_units
+                    key_map = adjusted.get(next_id)
+                    if key_map is None:
+                        adjusted[next_id] = {q2: mass}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass
             next_states = adjusted
 
         if keep_legacy_bonus_rules and draw % 240 == 0:
-            adjusted: dict[tuple[int, int, int, int], float] = defaultdict(float)
-            for (p6, p5, up, quota_units), mass in next_states.items():
-                key = (p6, p5, min(up_cap, up + 1), quota_units)
-                adjusted[key] += mass
+            adjusted: dict[int, dict[int, float]] = {}
+            for state_id, quota_mass_map in next_states.items():
+                p6, p5, up = _decode_state_id(state_id)
+                next_id = _encode_state_id(p6, p5, min(up_cap, up + 1))
+                key_map = adjusted.get(next_id)
+                if key_map is None:
+                    adjusted[next_id] = dict(quota_mass_map)
+                else:
+                    for quota_units, mass in quota_mass_map.items():
+                        key_map[quota_units] = key_map.get(quota_units, 0.0) + mass
             next_states = adjusted
 
-        states = {k: v for k, v in next_states.items() if v >= drop_threshold}
+        effective_threshold = _effective_drop_threshold(drop_threshold, draw) / (
+            up_cap + 1
+        )
+        states = {}
+        for key, quota_mass_map in next_states.items():
+            filtered_map = {
+                quota_units: mass
+                for quota_units, mass in quota_mass_map.items()
+                if mass >= effective_threshold
+            }
+            if filtered_map:
+                states[key] = filtered_map
 
         if draw < min_pulls:
             continue
@@ -378,40 +451,40 @@ def run_precompute_grid_incremental(
         expected_weapon_quota = 0.0
         state_mass = 0.0
 
-        for (_, _, up, quota_units), mass in states.items():
-            if mass <= 0.0:
-                continue
-            # 使用try-except优化缓存查询
-            try:
-                m = quota_to_m[quota_units]
-            except KeyError:
-                m = _weapon_ten_pulls_from_quota_units(quota_units)
-                quota_to_m[quota_units] = m
-            if m > max_weapon_ten_pulls_upper:
-                continue
-            total_mass_by_m[m] += mass
-            expected_weapon_quota += mass * quota_units * 20
-            state_mass += mass
-
+        for state_id, quota_mass_map in states.items():
+            _, _, up = _decode_state_id(state_id)
             max_a_hit = min(up, max_char_target)
-            if max_a_hit >= min_char_target:
-                # 优化内层循环，减少重复计算
-                min_a_idx = min_char_target - min_char_target  # 即 0
-                max_a_idx = max_a_hit - min_char_target
-                for a_idx in range(min_a_idx, max_a_idx + 1):
-                    char_mass_by_a_m[a_idx, m] += mass
+
+            for quota_units, mass in quota_mass_map.items():
+                if mass <= 0.0:
+                    continue
+
+                m = quota_to_m.get(quota_units)
+                if m is None:
+                    m = _weapon_ten_pulls_from_quota_units(quota_units)
+                    quota_to_m[quota_units] = m
+
+                if m > max_weapon_ten_pulls_upper:
+                    continue
+
+                total_mass_by_m[m] += mass
+                expected_weapon_quota += mass * quota_units * 20
+                state_mass += mass
+
+                if max_a_hit >= min_char_target:
+                    char_mass_by_a_m[: max_a_hit - min_char_target + 1, m] += mass
 
         expected_weapon_ten_pulls = float(np.dot(m_values, total_mass_by_m))
         character_only_probs = char_mass_by_a_m.sum(axis=1)
 
-        # 预计算所有weapon_only_probs和提取非零索引以加速后续计算
-        used_m_mask = total_mass_by_m > 0
         weapon_only_probs = {}
         weapon_cdf_slices = {}
         for b in weapon_targets:
             weapon_only_probs[b] = float(np.dot(total_mass_by_m, weapon_cdfs[b]))
-            # 虽然这个优化对于稠密的情况提升有限，但对于稀疏情况有帮助
             weapon_cdf_slices[b] = weapon_cdfs[b]
+
+        nonzero_m = np.where(total_mass_by_m > 0)[0]
+        max_weapon_ten_pulls = int(nonzero_m[-1]) if nonzero_m.size > 0 else 0
 
         for a in char_targets:
             char_masses = char_mass_by_a_m[a - min_char_target]
@@ -448,11 +521,7 @@ def run_precompute_grid_incremental(
                     "expected_six_star_count": float(expected_six_star_count),
                     "expected_weapon_quota": float(expected_weapon_quota),
                     "expected_weapon_ten_pulls": float(expected_weapon_ten_pulls),
-                    "max_weapon_ten_pulls": int(
-                        np.max(np.where(total_mass_by_m > 0)[0])
-                        if np.any(total_mass_by_m > 0)
-                        else 0
-                    ),
+                    "max_weapon_ten_pulls": max_weapon_ten_pulls,
                     "state_mass": float(state_mass),
                     "elapsed_seconds": float("nan"),
                     "created_at": datetime.now(timezone.utc).isoformat(),
@@ -467,7 +536,7 @@ def run_precompute_grid_incremental(
         avg = elapsed_total / max(1, processed_rows)
         remain = max(0, total_rows - processed_rows) * avg
         print(
-            f"[draw {draw}/{max_pulls}] states={len(states)} written={written_rows} "
+            f"[draw {draw}/{max_pulls}] states={sum(len(m) for m in states.values())} written={written_rows} "
             f"skipped={skipped_rows} ETA~{remain / 60:.1f} min"
         )
 

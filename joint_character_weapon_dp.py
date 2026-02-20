@@ -138,6 +138,87 @@ def _apply_up_bonus_binomial(
     return new_map
 
 
+def _apply_up_bonus_binomial_layered(
+    state_map: dict[tuple[int, int, int], dict[int, float]], up_cap: int
+) -> dict[tuple[int, int, int], dict[int, float]]:
+    p_bonus = 0.004
+    binom = [
+        math.comb(10, k) * (p_bonus**k) * ((1.0 - p_bonus) ** (10 - k))
+        for k in range(11)
+    ]
+
+    new_map: dict[tuple[int, int, int], dict[int, float]] = {}
+    for (p6, p5, up), quota_mass_map in state_map.items():
+        for quota_units, mass in quota_mass_map.items():
+            if mass == 0.0:
+                continue
+            for k, pk in enumerate(binom):
+                if pk == 0.0:
+                    continue
+                up2 = min(up_cap, up + k)
+                key = (p6, p5, up2)
+                key_map = new_map.get(key)
+                if key_map is None:
+                    new_map[key] = {quota_units: mass * pk}
+                else:
+                    key_map[quota_units] = key_map.get(quota_units, 0.0) + mass * pk
+    return new_map
+
+
+_STATE_UP_BITS = 4
+_STATE_P5_BITS = 4
+_STATE_UP_MASK = (1 << _STATE_UP_BITS) - 1
+_STATE_P5_MASK = (1 << _STATE_P5_BITS) - 1
+
+
+def _encode_state_id(p6: int, p5: int, up: int) -> int:
+    return (int(p6) << (_STATE_P5_BITS + _STATE_UP_BITS)) | (
+        int(p5) << _STATE_UP_BITS
+    ) | int(up)
+
+
+def _decode_state_id(state_id: int) -> tuple[int, int, int]:
+    up = state_id & _STATE_UP_MASK
+    p5 = (state_id >> _STATE_UP_BITS) & _STATE_P5_MASK
+    p6 = state_id >> (_STATE_P5_BITS + _STATE_UP_BITS)
+    return p6, p5, up
+
+
+def _apply_up_bonus_binomial_layered_encoded(
+    state_map: dict[int, dict[int, float]], up_cap: int
+) -> dict[int, dict[int, float]]:
+    p_bonus = 0.004
+    binom = [
+        math.comb(10, k) * (p_bonus**k) * ((1.0 - p_bonus) ** (10 - k))
+        for k in range(11)
+    ]
+
+    new_map: dict[int, dict[int, float]] = {}
+    for state_id, quota_mass_map in state_map.items():
+        p6, p5, up = _decode_state_id(state_id)
+        for quota_units, mass in quota_mass_map.items():
+            if mass == 0.0:
+                continue
+            for k, pk in enumerate(binom):
+                if pk == 0.0:
+                    continue
+                up2 = min(up_cap, up + k)
+                next_id = _encode_state_id(p6, p5, up2)
+                key_map = new_map.get(next_id)
+                if key_map is None:
+                    new_map[next_id] = {quota_units: mass * pk}
+                else:
+                    key_map[quota_units] = key_map.get(quota_units, 0.0) + mass * pk
+    return new_map
+
+
+def _effective_drop_threshold(base_threshold: float, draw: int) -> float:
+    if base_threshold <= 0.0 or draw <= 120:
+        return base_threshold
+    scale = 1.0 + 0.2 * (draw - 120)
+    return min(1e-8, base_threshold * scale)
+
+
 @lru_cache(maxsize=256)
 def _get_weapon_cdf(
     target_up_weapons: int, max_weapon_ten_pulls: int
@@ -170,69 +251,145 @@ def calculate_joint_character_weapon_probability(
 
     up_cap = max(1, target_up_characters)
 
-    states: dict[tuple[int, int, int, int], float] = {
-        (initial_six_pity, initial_five_pity, 0, 0): 1.0
-    }
+    transition_cache: dict[
+        int, tuple[float, float, float, float, int, int, int, int]
+    ] = {}
+    for p6 in range(81):
+        for p5 in range(10):
+            p6_up, p6_off, p5_star, p4_star = _normal_tier_probs(p6, p5)
+            p6_next = min(80, p6 + 1)
+            p5_next = min(9, p5 + 1)
+            for up in range(up_cap + 1):
+                state_id = _encode_state_id(p6, p5, up)
+                transition_cache[state_id] = (
+                    p6_up,
+                    p6_off,
+                    p5_star,
+                    p4_star,
+                    _encode_state_id(0, 0, min(up_cap, up + 1)),
+                    _encode_state_id(0, 0, up),
+                    _encode_state_id(p6_next, 0, up),
+                    _encode_state_id(p6_next, p5_next, up),
+                )
+
+    init_state_id = _encode_state_id(initial_six_pity, initial_five_pity, 0)
+    states: dict[int, dict[int, float]] = {init_state_id: {0: 1.0}}
     expected_six_star_count = 0.0
 
     for draw in range(1, character_pulls + 1):
-        next_states: dict[tuple[int, int, int, int], float] = {}
+        next_states: dict[int, dict[int, float]] = {}
 
-        for (p6, p5, up, quota_units), mass in states.items():
-            if mass <= 0.0:
-                continue
+        for state_id, quota_mass_map in states.items():
+            (
+                p6_up,
+                p6_off,
+                p5_star,
+                p4_star,
+                next_id_6_up,
+                next_id_6_off,
+                next_id_5,
+                next_id_4,
+            ) = transition_cache[state_id]
 
-            p6_up, p6_off, p5_star, p4_star = _normal_tier_probs(p6, p5)
-            expected_six_star_count += mass * (p6_up + p6_off)
+            for quota_units, mass in quota_mass_map.items():
+                if mass <= 0.0:
+                    continue
 
-            if p6_up > 0.0:
-                key = (0, 0, min(up_cap, up + 1), quota_units + 100)
-                next_states[key] = next_states.get(key, 0.0) + mass * p6_up
+                expected_six_star_count += mass * (p6_up + p6_off)
 
-            if p6_off > 0.0:
-                key = (0, 0, up, quota_units + 100)
-                next_states[key] = next_states.get(key, 0.0) + mass * p6_off
+                if p6_up > 0.0:
+                    key_map = next_states.get(next_id_6_up)
+                    q2 = quota_units + 100
+                    if key_map is None:
+                        next_states[next_id_6_up] = {q2: mass * p6_up}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_up
 
-            if p5_star > 0.0:
-                key = (min(80, p6 + 1), 0, up, quota_units + 10)
-                next_states[key] = next_states.get(key, 0.0) + mass * p5_star
+                if p6_off > 0.0:
+                    key_map = next_states.get(next_id_6_off)
+                    q2 = quota_units + 100
+                    if key_map is None:
+                        next_states[next_id_6_off] = {q2: mass * p6_off}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_off
 
-            if p4_star > 0.0:
-                key = (min(80, p6 + 1), min(9, p5 + 1), up, quota_units + 1)
-                next_states[key] = next_states.get(key, 0.0) + mass * p4_star
+                if p5_star > 0.0:
+                    key_map = next_states.get(next_id_5)
+                    q2 = quota_units + 10
+                    if key_map is None:
+                        next_states[next_id_5] = {q2: mass * p5_star}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p5_star
+
+                if p4_star > 0.0:
+                    key_map = next_states.get(next_id_4)
+                    q2 = quota_units + 1
+                    if key_map is None:
+                        next_states[next_id_4] = {q2: mass * p4_star}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass * p4_star
 
         if keep_legacy_bonus_rules and draw == 30:
-            next_states = _apply_up_bonus_binomial(next_states, up_cap=up_cap)
+            next_states = _apply_up_bonus_binomial_layered_encoded(
+                next_states, up_cap=up_cap
+            )
 
         if keep_legacy_bonus_rules and draw == 120:
-            adjusted: dict[tuple[int, int, int, int], float] = {}
-            for (p6, p5, up, quota_units), mass in next_states.items():
-                if up == 0:
-                    expected_six_star_count += mass
-                    key = (0, 0, min(up_cap, 1), quota_units + 100)
-                else:
-                    key = (p6, p5, up, quota_units)
-                adjusted[key] = adjusted.get(key, 0.0) + mass
+            adjusted: dict[int, dict[int, float]] = {}
+            for state_id, quota_mass_map in next_states.items():
+                p6, p5, up = _decode_state_id(state_id)
+                for quota_units, mass in quota_mass_map.items():
+                    if up == 0:
+                        expected_six_star_count += mass
+                        next_id = _encode_state_id(0, 0, min(up_cap, 1))
+                        q2 = quota_units + 100
+                    else:
+                        next_id = state_id
+                        q2 = quota_units
+                    key_map = adjusted.get(next_id)
+                    if key_map is None:
+                        adjusted[next_id] = {q2: mass}
+                    else:
+                        key_map[q2] = key_map.get(q2, 0.0) + mass
             next_states = adjusted
 
         if keep_legacy_bonus_rules and draw % 240 == 0:
-            adjusted: dict[tuple[int, int, int, int], float] = {}
-            for (p6, p5, up, quota_units), mass in next_states.items():
-                key = (p6, p5, min(up_cap, up + 1), quota_units)
-                adjusted[key] = adjusted.get(key, 0.0) + mass
+            adjusted: dict[int, dict[int, float]] = {}
+            for state_id, quota_mass_map in next_states.items():
+                p6, p5, up = _decode_state_id(state_id)
+                next_id = _encode_state_id(p6, p5, min(up_cap, up + 1))
+                key_map = adjusted.get(next_id)
+                if key_map is None:
+                    adjusted[next_id] = dict(quota_mass_map)
+                else:
+                    for quota_units, mass in quota_mass_map.items():
+                        key_map[quota_units] = key_map.get(quota_units, 0.0) + mass
             next_states = adjusted
 
-        states = {
-            key: value for key, value in next_states.items() if value >= drop_threshold
-        }
+        effective_threshold = _effective_drop_threshold(drop_threshold, draw)
 
-    total_mass = float(sum(states.values()))
+        states = {}
+        for key, quota_mass_map in next_states.items():
+            filtered_map = {
+                quota_units: mass
+                for quota_units, mass in quota_mass_map.items()
+                if mass >= effective_threshold
+            }
+            if filtered_map:
+                states[key] = filtered_map
+
+    total_mass = float(sum(sum(m.values()) for m in states.values()))
 
     if target_up_weapons <= 0:
         weapon_cdf = (1.0,)
         max_weapon_ten_pulls = 0
     else:
-        max_quota_units = max((q for (_, _, _, q) in states.keys()), default=0)
+        max_quota_units = 0
+        for quota_mass_map in states.values():
+            if quota_mass_map:
+                local_max = max(quota_mass_map.keys())
+                if local_max > max_quota_units:
+                    max_quota_units = local_max
         max_weapon_ten_pulls = _weapon_ten_pulls_from_quota_units(max_quota_units)
         weapon_cdf = _get_weapon_cdf(
             target_up_weapons=target_up_weapons,
@@ -245,23 +402,26 @@ def calculate_joint_character_weapon_probability(
     expected_weapon_ten_pulls = 0.0
     expected_weapon_quota = 0.0
 
-    for (_, _, up, quota_units), mass in states.items():
-        weapon_ten_pulls = _weapon_ten_pulls_from_quota_units(quota_units)
-        expected_weapon_ten_pulls += mass * weapon_ten_pulls
-        expected_weapon_quota += mass * quota_units * 20
-
-        if target_up_weapons <= 0:
-            weapon_only_probability += mass
-        else:
-            weapon_only_probability += mass * float(weapon_cdf[weapon_ten_pulls])
-
+    for state_id, quota_mass_map in states.items():
+        _, _, up = _decode_state_id(state_id)
         char_success = up >= target_up_characters
-        if char_success:
-            character_only_probability += mass
+        for quota_units, mass in quota_mass_map.items():
+            weapon_ten_pulls = _weapon_ten_pulls_from_quota_units(quota_units)
+            expected_weapon_ten_pulls += mass * weapon_ten_pulls
+            expected_weapon_quota += mass * quota_units * 20
+
             if target_up_weapons <= 0:
-                final_probability += mass
+                weapon_only_probability += mass
+                if char_success:
+                    final_probability += mass
             else:
-                final_probability += mass * float(weapon_cdf[weapon_ten_pulls])
+                weapon_success = mass * float(weapon_cdf[weapon_ten_pulls])
+                weapon_only_probability += weapon_success
+                if char_success:
+                    final_probability += weapon_success
+
+            if char_success:
+                character_only_probability += mass
 
     return JointProbabilityResult(
         final_probability=final_probability,
