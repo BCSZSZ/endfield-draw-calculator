@@ -153,6 +153,7 @@ def render_joint_page() -> None:
 
     if precomputed_hit:
         result = precomputed_hit["result"]
+        source_label = "预计算 Parquet 命中"
     else:
         result = calculate_joint_cached(
             character_pulls=int(character_pulls),
@@ -163,6 +164,9 @@ def render_joint_page() -> None:
             keep_legacy_bonus_rules=FIXED_KEEP_LEGACY_BONUS_RULES,
             drop_threshold=FIXED_DROP_THRESHOLD,
         )
+        source_label = "实时计算（未命中预计算）"
+
+    st.caption(f"当前结果来源：{source_label}")
 
     col1, col2, col3 = st.columns(3)
     col1.metric(

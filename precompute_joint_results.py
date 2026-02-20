@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -177,6 +176,40 @@ def _build_row(scenario: dict, key: str, elapsed: float, result_dict: dict) -> d
     }
 
 
+def _find_first_missing_draw(
+    known_keys: set[str],
+    min_pulls: int,
+    max_pulls: int,
+    char_targets: list[int],
+    weapon_targets: list[int],
+    keep_legacy_bonus_rules: bool,
+    drop_threshold: float,
+) -> int:
+    for draw in range(min_pulls, max_pulls + 1):
+        draw_complete = True
+        for a in char_targets:
+            for b in weapon_targets:
+                key = make_joint_scenario_key(
+                    character_pulls=draw,
+                    target_up_characters=a,
+                    target_up_weapons=b,
+                    initial_six_pity=0,
+                    initial_five_pity=0,
+                    keep_legacy_bonus_rules=keep_legacy_bonus_rules,
+                    drop_threshold=drop_threshold,
+                )
+                if key not in known_keys:
+                    draw_complete = False
+                    break
+            if not draw_complete:
+                break
+
+        if not draw_complete:
+            return draw
+
+    return max_pulls + 1
+
+
 def run_precompute(
     scenarios: list[dict] | None = None,
     output_path: Path = OUTPUT_PATH,
@@ -187,6 +220,8 @@ def run_precompute(
     if LEGACY_OUTPUT_PATH != output_path:
         key_paths.append(LEGACY_OUTPUT_PATH)
     known_keys = _load_existing_keys(key_paths)
+    print(f"[resume] loaded existing scenario keys: {len(known_keys)}")
+    print(f"[resume] loaded existing scenario keys: {len(known_keys)}")
 
     schema: pa.Schema | None = None
     part_index = _next_part_index(output_path)
@@ -288,6 +323,29 @@ def run_precompute_grid_incremental(
 
     char_targets = list(range(min_char_target, max_char_target + 1))
     weapon_targets = list(range(min_weapon_target, max_weapon_target + 1))
+    effective_min_pulls = max(
+        min_pulls,
+        _find_first_missing_draw(
+            known_keys=known_keys,
+            min_pulls=min_pulls,
+            max_pulls=max_pulls,
+            char_targets=char_targets,
+            weapon_targets=weapon_targets,
+            keep_legacy_bonus_rules=keep_legacy_bonus_rules,
+            drop_threshold=drop_threshold,
+        ),
+    )
+    if effective_min_pulls > max_pulls:
+        print(
+            f"[resume] all scenarios already exist for draws {min_pulls}-{max_pulls}; nothing to do."
+        )
+        print(f"Saved: {output_path}")
+        print("Summary: written=0, skipped=0, total=0")
+        return
+
+    print(
+        f"[resume] first missing draw: {effective_min_pulls} (requested range {min_pulls}-{max_pulls})"
+    )
 
     up_cap = max_char_target
     transition_cache: dict[
@@ -328,7 +386,11 @@ def run_precompute_grid_incremental(
             cdf = np.pad(cdf, (0, m_values.size - cdf.size), mode="edge")
         weapon_cdfs[b] = cdf
 
-    total_rows = (max_pulls - min_pulls + 1) * len(char_targets) * len(weapon_targets)
+    total_rows = (
+        (max_pulls - effective_min_pulls + 1)
+        * len(char_targets)
+        * len(weapon_targets)
+    )
     written_rows = 0
     skipped_rows = 0
     new_rows: list[dict] = []
@@ -339,226 +401,231 @@ def run_precompute_grid_incremental(
     total_mass_by_m = np.zeros(m_values.size, dtype=float)
     char_mass_by_a_m = np.zeros((len(char_targets), m_values.size), dtype=float)
 
-    for draw in range(1, max_pulls + 1):
-        next_states: dict[int, dict[int, float]] = {}
+    try:
+        for draw in range(1, max_pulls + 1):
+            next_states: dict[int, dict[int, float]] = {}
 
-        for state_id, quota_mass_map in states.items():
-            (
-                p6_up,
-                p6_off,
-                p5_star,
-                p4_star,
-                next_id_6_up,
-                next_id_6_off,
-                next_id_5,
-                next_id_4,
-            ) = transition_cache[state_id]
+            for state_id, quota_mass_map in states.items():
+                (
+                    p6_up,
+                    p6_off,
+                    p5_star,
+                    p4_star,
+                    next_id_6_up,
+                    next_id_6_off,
+                    next_id_5,
+                    next_id_4,
+                ) = transition_cache[state_id]
 
-            for quota_units, mass in quota_mass_map.items():
-                if mass <= 0.0:
-                    continue
-
-                expected_six_star_count += mass * (p6_up + p6_off)
-
-                if p6_up > 0.0:
-                    q2 = quota_units + 100
-                    key_map = next_states.get(next_id_6_up)
-                    if key_map is None:
-                        next_states[next_id_6_up] = {q2: mass * p6_up}
-                    else:
-                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_up
-
-                if p6_off > 0.0:
-                    q2 = quota_units + 100
-                    key_map = next_states.get(next_id_6_off)
-                    if key_map is None:
-                        next_states[next_id_6_off] = {q2: mass * p6_off}
-                    else:
-                        key_map[q2] = key_map.get(q2, 0.0) + mass * p6_off
-
-                if p5_star > 0.0:
-                    q2 = quota_units + 10
-                    key_map = next_states.get(next_id_5)
-                    if key_map is None:
-                        next_states[next_id_5] = {q2: mass * p5_star}
-                    else:
-                        key_map[q2] = key_map.get(q2, 0.0) + mass * p5_star
-
-                if p4_star > 0.0:
-                    q2 = quota_units + 1
-                    key_map = next_states.get(next_id_4)
-                    if key_map is None:
-                        next_states[next_id_4] = {q2: mass * p4_star}
-                    else:
-                        key_map[q2] = key_map.get(q2, 0.0) + mass * p4_star
-
-        if keep_legacy_bonus_rules and draw == 30:
-            next_states = _apply_up_bonus_binomial_layered_encoded(
-                next_states, up_cap=up_cap
-            )
-
-        if keep_legacy_bonus_rules and draw == 120:
-            adjusted: dict[int, dict[int, float]] = {}
-            for state_id, quota_mass_map in next_states.items():
-                p6, p5, up = _decode_state_id(state_id)
                 for quota_units, mass in quota_mass_map.items():
-                    if up == 0:
-                        expected_six_star_count += mass
-                        next_id = _encode_state_id(0, 0, min(up_cap, 1))
+                    if mass <= 0.0:
+                        continue
+
+                    expected_six_star_count += mass * (p6_up + p6_off)
+
+                    if p6_up > 0.0:
                         q2 = quota_units + 100
-                    else:
-                        next_id = state_id
-                        q2 = quota_units
+                        key_map = next_states.get(next_id_6_up)
+                        if key_map is None:
+                            next_states[next_id_6_up] = {q2: mass * p6_up}
+                        else:
+                            key_map[q2] = key_map.get(q2, 0.0) + mass * p6_up
+
+                    if p6_off > 0.0:
+                        q2 = quota_units + 100
+                        key_map = next_states.get(next_id_6_off)
+                        if key_map is None:
+                            next_states[next_id_6_off] = {q2: mass * p6_off}
+                        else:
+                            key_map[q2] = key_map.get(q2, 0.0) + mass * p6_off
+
+                    if p5_star > 0.0:
+                        q2 = quota_units + 10
+                        key_map = next_states.get(next_id_5)
+                        if key_map is None:
+                            next_states[next_id_5] = {q2: mass * p5_star}
+                        else:
+                            key_map[q2] = key_map.get(q2, 0.0) + mass * p5_star
+
+                    if p4_star > 0.0:
+                        q2 = quota_units + 1
+                        key_map = next_states.get(next_id_4)
+                        if key_map is None:
+                            next_states[next_id_4] = {q2: mass * p4_star}
+                        else:
+                            key_map[q2] = key_map.get(q2, 0.0) + mass * p4_star
+
+            if keep_legacy_bonus_rules and draw == 30:
+                next_states = _apply_up_bonus_binomial_layered_encoded(
+                    next_states, up_cap=up_cap
+                )
+
+            if keep_legacy_bonus_rules and draw == 120:
+                adjusted: dict[int, dict[int, float]] = {}
+                for state_id, quota_mass_map in next_states.items():
+                    p6, p5, up = _decode_state_id(state_id)
+                    for quota_units, mass in quota_mass_map.items():
+                        if up == 0:
+                            expected_six_star_count += mass
+                            next_id = _encode_state_id(0, 0, min(up_cap, 1))
+                            q2 = quota_units + 100
+                        else:
+                            next_id = state_id
+                            q2 = quota_units
+                        key_map = adjusted.get(next_id)
+                        if key_map is None:
+                            adjusted[next_id] = {q2: mass}
+                        else:
+                            key_map[q2] = key_map.get(q2, 0.0) + mass
+                next_states = adjusted
+
+            if keep_legacy_bonus_rules and draw % 240 == 0:
+                adjusted: dict[int, dict[int, float]] = {}
+                for state_id, quota_mass_map in next_states.items():
+                    p6, p5, up = _decode_state_id(state_id)
+                    next_id = _encode_state_id(p6, p5, min(up_cap, up + 1))
                     key_map = adjusted.get(next_id)
                     if key_map is None:
-                        adjusted[next_id] = {q2: mass}
+                        adjusted[next_id] = dict(quota_mass_map)
                     else:
-                        key_map[q2] = key_map.get(q2, 0.0) + mass
-            next_states = adjusted
+                        for quota_units, mass in quota_mass_map.items():
+                            key_map[quota_units] = key_map.get(quota_units, 0.0) + mass
+                next_states = adjusted
 
-        if keep_legacy_bonus_rules and draw % 240 == 0:
-            adjusted: dict[int, dict[int, float]] = {}
-            for state_id, quota_mass_map in next_states.items():
-                p6, p5, up = _decode_state_id(state_id)
-                next_id = _encode_state_id(p6, p5, min(up_cap, up + 1))
-                key_map = adjusted.get(next_id)
-                if key_map is None:
-                    adjusted[next_id] = dict(quota_mass_map)
-                else:
-                    for quota_units, mass in quota_mass_map.items():
-                        key_map[quota_units] = key_map.get(quota_units, 0.0) + mass
-            next_states = adjusted
+            effective_threshold = _effective_drop_threshold(drop_threshold, draw) / (
+                up_cap + 1
+            )
+            states = {}
+            for key, quota_mass_map in next_states.items():
+                filtered_map = {
+                    quota_units: mass
+                    for quota_units, mass in quota_mass_map.items()
+                    if mass >= effective_threshold
+                }
+                if filtered_map:
+                    states[key] = filtered_map
 
-        effective_threshold = _effective_drop_threshold(drop_threshold, draw) / (
-            up_cap + 1
-        )
-        states = {}
-        for key, quota_mass_map in next_states.items():
-            filtered_map = {
-                quota_units: mass
-                for quota_units, mass in quota_mass_map.items()
-                if mass >= effective_threshold
-            }
-            if filtered_map:
-                states[key] = filtered_map
+            if draw < effective_min_pulls:
+                continue
 
-        if draw < min_pulls:
-            continue
+            # 复用预分配的数组
+            total_mass_by_m.fill(0.0)
+            char_mass_by_a_m.fill(0.0)
+            expected_weapon_quota = 0.0
+            state_mass = 0.0
 
-        # 复用预分配的数组
-        total_mass_by_m.fill(0.0)
-        char_mass_by_a_m.fill(0.0)
-        expected_weapon_quota = 0.0
-        state_mass = 0.0
+            for state_id, quota_mass_map in states.items():
+                _, _, up = _decode_state_id(state_id)
+                max_a_hit = min(up, max_char_target)
 
-        for state_id, quota_mass_map in states.items():
-            _, _, up = _decode_state_id(state_id)
-            max_a_hit = min(up, max_char_target)
+                for quota_units, mass in quota_mass_map.items():
+                    if mass <= 0.0:
+                        continue
 
-            for quota_units, mass in quota_mass_map.items():
-                if mass <= 0.0:
-                    continue
+                    m = quota_to_m.get(quota_units)
+                    if m is None:
+                        m = _weapon_ten_pulls_from_quota_units(quota_units)
+                        quota_to_m[quota_units] = m
 
-                m = quota_to_m.get(quota_units)
-                if m is None:
-                    m = _weapon_ten_pulls_from_quota_units(quota_units)
-                    quota_to_m[quota_units] = m
+                    if m > max_weapon_ten_pulls_upper:
+                        continue
 
-                if m > max_weapon_ten_pulls_upper:
-                    continue
+                    total_mass_by_m[m] += mass
+                    expected_weapon_quota += mass * quota_units * 20
+                    state_mass += mass
 
-                total_mass_by_m[m] += mass
-                expected_weapon_quota += mass * quota_units * 20
-                state_mass += mass
+                    if max_a_hit >= min_char_target:
+                        char_mass_by_a_m[: max_a_hit - min_char_target + 1, m] += mass
 
-                if max_a_hit >= min_char_target:
-                    char_mass_by_a_m[: max_a_hit - min_char_target + 1, m] += mass
+            expected_weapon_ten_pulls = float(np.dot(m_values, total_mass_by_m))
+            character_only_probs = char_mass_by_a_m.sum(axis=1)
 
-        expected_weapon_ten_pulls = float(np.dot(m_values, total_mass_by_m))
-        character_only_probs = char_mass_by_a_m.sum(axis=1)
-
-        weapon_only_probs = {}
-        weapon_cdf_slices = {}
-        for b in weapon_targets:
-            weapon_only_probs[b] = float(np.dot(total_mass_by_m, weapon_cdfs[b]))
-            weapon_cdf_slices[b] = weapon_cdfs[b]
-
-        nonzero_m = np.where(total_mass_by_m > 0)[0]
-        max_weapon_ten_pulls = int(nonzero_m[-1]) if nonzero_m.size > 0 else 0
-
-        for a in char_targets:
-            char_masses = char_mass_by_a_m[a - min_char_target]
+            weapon_only_probs = {}
+            weapon_cdf_slices = {}
             for b in weapon_targets:
-                scenario = {
-                    "character_pulls": draw,
-                    "target_up_characters": a,
-                    "target_up_weapons": b,
-                    "initial_six_pity": 0,
-                    "initial_five_pity": 0,
-                    "keep_legacy_bonus_rules": keep_legacy_bonus_rules,
-                    "drop_threshold": drop_threshold,
-                }
-                key = make_joint_scenario_key(**scenario)
-                if key in known_keys:
-                    skipped_rows += 1
-                    continue
+                weapon_only_probs[b] = float(np.dot(total_mass_by_m, weapon_cdfs[b]))
+                weapon_cdf_slices[b] = weapon_cdfs[b]
 
-                final_probability = float(np.dot(char_masses, weapon_cdf_slices[b]))
-                row = {
-                    "scenario_key": key,
-                    "character_pulls": draw,
-                    "target_up_characters": a,
-                    "target_up_weapons": b,
-                    "initial_six_pity": 0,
-                    "initial_five_pity": 0,
-                    "keep_legacy_bonus_rules": bool(keep_legacy_bonus_rules),
-                    "drop_threshold": float(drop_threshold),
-                    "final_probability": float(final_probability),
-                    "character_only_probability": float(
-                        character_only_probs[a - min_char_target]
-                    ),
-                    "weapon_only_probability": float(weapon_only_probs[b]),
-                    "expected_six_star_count": float(expected_six_star_count),
-                    "expected_weapon_quota": float(expected_weapon_quota),
-                    "expected_weapon_ten_pulls": float(expected_weapon_ten_pulls),
-                    "max_weapon_ten_pulls": max_weapon_ten_pulls,
-                    "state_mass": float(state_mass),
-                    "elapsed_seconds": float("nan"),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "generator": "precompute_joint_results.py::incremental_grid",
-                }
-                new_rows.append(row)
-                known_keys.add(key)
-                written_rows += 1
+            nonzero_m = np.where(total_mass_by_m > 0)[0]
+            max_weapon_ten_pulls = int(nonzero_m[-1]) if nonzero_m.size > 0 else 0
 
-        elapsed_total = time.perf_counter() - started_at
-        processed_rows = written_rows + skipped_rows
-        avg = elapsed_total / max(1, processed_rows)
-        remain = max(0, total_rows - processed_rows) * avg
+            for a in char_targets:
+                char_masses = char_mass_by_a_m[a - min_char_target]
+                for b in weapon_targets:
+                    scenario = {
+                        "character_pulls": draw,
+                        "target_up_characters": a,
+                        "target_up_weapons": b,
+                        "initial_six_pity": 0,
+                        "initial_five_pity": 0,
+                        "keep_legacy_bonus_rules": keep_legacy_bonus_rules,
+                        "drop_threshold": drop_threshold,
+                    }
+                    key = make_joint_scenario_key(**scenario)
+                    if key in known_keys:
+                        skipped_rows += 1
+                        continue
+
+                    final_probability = float(np.dot(char_masses, weapon_cdf_slices[b]))
+                    row = {
+                        "scenario_key": key,
+                        "character_pulls": draw,
+                        "target_up_characters": a,
+                        "target_up_weapons": b,
+                        "initial_six_pity": 0,
+                        "initial_five_pity": 0,
+                        "keep_legacy_bonus_rules": bool(keep_legacy_bonus_rules),
+                        "drop_threshold": float(drop_threshold),
+                        "final_probability": float(final_probability),
+                        "character_only_probability": float(
+                            character_only_probs[a - min_char_target]
+                        ),
+                        "weapon_only_probability": float(weapon_only_probs[b]),
+                        "expected_six_star_count": float(expected_six_star_count),
+                        "expected_weapon_quota": float(expected_weapon_quota),
+                        "expected_weapon_ten_pulls": float(expected_weapon_ten_pulls),
+                        "max_weapon_ten_pulls": max_weapon_ten_pulls,
+                        "state_mass": float(state_mass),
+                        "elapsed_seconds": float("nan"),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "generator": "precompute_joint_results.py::incremental_grid",
+                    }
+                    new_rows.append(row)
+                    known_keys.add(key)
+                    written_rows += 1
+
+            elapsed_total = time.perf_counter() - started_at
+            processed_rows = written_rows + skipped_rows
+            avg = elapsed_total / max(1, processed_rows)
+            remain = max(0, total_rows - processed_rows) * avg
+            print(
+                f"[draw {draw}/{max_pulls}] states={sum(len(m) for m in states.values())} written={written_rows} "
+                f"skipped={skipped_rows} ETA~{remain / 60:.1f} min"
+            )
+
+            if flush_every > 0 and len(new_rows) >= int(flush_every):
+                schema = _write_rows_dataset(
+                    output_path=output_path,
+                    rows=new_rows,
+                    part_index=part_index,
+                    schema=schema,
+                )
+                part_index += 1
+                print(f"[save] checkpoint rows={len(new_rows)}")
+                new_rows = []
+    except KeyboardInterrupt:
         print(
-            f"[draw {draw}/{max_pulls}] states={sum(len(m) for m in states.values())} written={written_rows} "
-            f"skipped={skipped_rows} ETA~{remain / 60:.1f} min"
+            "[interrupt] Caught KeyboardInterrupt. Flushing buffered rows to parquet..."
         )
-
-        if flush_every > 0 and len(new_rows) >= int(flush_every):
-            schema = _write_rows_dataset(
+    finally:
+        if new_rows:
+            _write_rows_dataset(
                 output_path=output_path,
                 rows=new_rows,
                 part_index=part_index,
                 schema=schema,
             )
-            part_index += 1
-            print(f"[save] checkpoint rows={len(new_rows)}")
-            new_rows = []
-
-    if new_rows:
-        _write_rows_dataset(
-            output_path=output_path,
-            rows=new_rows,
-            part_index=part_index,
-            schema=schema,
-        )
-        print(f"[save] final rows={len(new_rows)}")
+            print(f"[save] final rows={len(new_rows)}")
 
     print(f"Saved: {output_path}")
     print(
