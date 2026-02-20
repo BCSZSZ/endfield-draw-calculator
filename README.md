@@ -33,7 +33,29 @@ For joint character+weapon precompute cache (Parquet):
 python precompute_joint_results.py
 ```
 
-This generates `precomputed/joint_results.parquet` for fast lookup in Streamlit.
+This generates/updates `precomputed/joint_results_dataset/` (Parquet dataset) for fast lookup in Streamlit.
+
+## Rule Terminology (Unified)
+
+To keep UI and docs consistent, use the following wording:
+
+- **Draw outcome**: Result produced by the draw process itself (including pity-triggered draw outcomes).
+- **Direct gift**: Result granted by milestone/reward rules, not produced by a draw.
+
+### Character rules
+
+- **80-pull small pity** is a draw outcome.
+- **120-pull first-cycle big pity** is also a draw outcome.
+- **Every 240 pulls** gives a direct gift (UP token/duplicate), not a draw outcome.
+
+### Weapon rules
+
+- **At 18 ten-pulls and every 16 ten-pulls after that** (18, 34, 50, ...) are direct gifts of UP weapon, not draw outcomes.
+
+### Joint model quota rule
+
+- Weapon quota (`+100/+10/+1` from 6★/5★/4★ character results) is accumulated from draw outcomes.
+- Direct gifts (for example, the 240-pull character cycle gift) do not add extra weapon quota.
 
 ## Run
 
