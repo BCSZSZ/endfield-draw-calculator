@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f141a">
+  <meta name="description" content="终末地抽卡规划：按目标潜能或抽数，计算50%、90%、99%达成概率下的首发与复刻分配，查看完整概率分布。">
+  <title>终末地 · 寻访规划</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23101b1a'/%3E%3Cpath d='M16 16h32v8H24v8h20v8H24v8h-8z' fill='%23e8f56a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./vendor/plotly-basic-3.3.1.min.js" defer></script>
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="topbar wrap">
+    <h1 class="brand"><a href="./">终末地寻访计算器</a></h1>
+    <nav aria-label="页面导航"><a href="#details">概率详情 <span aria-hidden="true">↗</span></a><a href="https://github.com/BCSZSZ/endfield-draw-calculator" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main class="wrap">
+    <section class="planner panel" aria-label="寻访设置">
+      <form id="plan-form">
+        <div class="form-grid">
+          <fieldset class="goal-field"><legend>我想计算</legend><div class="segmented"><label><input type="radio" name="mode" value="potential" checked><span>目标潜能</span></label><label><input type="radio" name="mode" value="budget"><span>目标抽数</span></label></div></fieldset>
+          <fieldset id="potential-field"><legend>目标潜能</legend><div class="potential-options" id="potential-options"></div><p class="field-help">0 潜为本体，5 潜共需获得 6 份。</p></fieldset>
+          <div id="budget-field" hidden><label for="budget">可分配的总抽数</label><div class="number-wrap"><input id="budget" name="budget" type="number" min="0" max="1200" value="300" step="1" inputmode="numeric"><span>抽</span></div><p class="field-help">0–1200 次常规寻访，免费加急十连另计。</p></div>
+          <div><label for="initial-pity">本池六星水位</label><div class="number-wrap"><input id="initial-pity" name="initialPity" type="number" min="0" max="79" value="0" step="1" inputmode="numeric"><span>抽</span></div><p class="field-help">距离上次六星，连续未出货的常规抽数。</p></div>
+        </div>
+        <div class="rerun-line"><label class="check-label"><input id="include-rerun" type="checkbox" name="includeRerun"><span class="check-box" aria-hidden="true"></span><span>考虑复刻池<small>允许将预算留给同角色再次 UP 的重构寻访</small></span></label><div id="rerun-pity-field" class="rerun-pity" hidden><label for="rerun-pity">复刻六星水位</label><input id="rerun-pity" type="number" min="0" max="79" value="0" step="1" inputmode="numeric"></div></div>
+        <div class="form-footer"><p>默认未持有目标角色；两池奖励与 120 保底进度均从零开始。<br>加急十连出货不消耗 120 保底；本池水位不带入复刻。</p><button id="calculate" class="primary" type="submit" disabled><span>加载概率数据…</span><span aria-hidden="true">↗</span></button></div>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite">正在准备计算器…</p>
+      <noscript><p class="status error">请启用 JavaScript 以使用计算器。</p></noscript>
+    </section>
+
+    <section id="results-section" class="results-section" aria-label="计算结果" hidden>
+      <p id="result-summary" class="result-summary"></p>
+      <div class="result-grid" id="results"></div>
+      <p class="result-footnote">达成概率表示“至少达到该潜能”的机会。99% 档更保守；赠送十连和信物已计入结果。分配为两池的预算上限，提前达标即可停止。</p>
+    </section>
+
+    <section id="details" class="details-section" aria-labelledby="details-title">
+      <div class="section-heading"><h2 id="details-title">抽卡概率详情</h2></div>
+      <div class="detail-tabs" role="tablist" aria-label="详细计算类型"><button role="tab" id="tab-character" aria-selected="true" aria-controls="distribution-panel" tabindex="0" data-tab="character">干员概率</button><button role="tab" id="tab-weapon" aria-selected="false" aria-controls="distribution-panel" tabindex="-1" data-tab="weapon">武器概率</button><button role="tab" id="tab-joint" aria-selected="false" aria-controls="joint-panel" tabindex="-1" data-tab="joint">干员 + 武器</button></div>
+      <div class="panel detail-panel" id="distribution-panel" role="tabpanel" aria-labelledby="tab-character">
+        <div class="detail-controls"><div id="detail-source-field"><label for="detail-source">查看方案</label><select id="detail-source"><option value="plan">当前推荐方案</option><option value="chartered">仅本池</option><option value="rerun">仅复刻</option></select></div><div id="detail-confidence-field"><label for="detail-confidence">推荐档位</label><select id="detail-confidence"><option value="0">50% · 我是欧皇</option><option value="1" selected>90% · 我是非酋</option><option value="2">99% · 宇宙大非酋</option></select></div><div><label for="detail-target">目标数量</label><select id="detail-target"><option value="1">1 份 · 本体</option><option value="2">2 份 · 1 潜</option><option value="3">3 份 · 2 潜</option><option value="4">4 份 · 3 潜</option><option value="5">5 份 · 4 潜</option><option value="6" selected>6 份 · 满潜</option></select></div><div><label for="chart-max">图表显示至</label><div class="number-wrap"><input id="chart-max" type="number" min="1" max="2400" step="1" value="800"><span id="chart-unit">抽</span></div></div></div>
+        <p id="detail-description" class="field-help">完成上方计算后，显示对应的推荐方案。</p>
+        <div id="distribution-content" hidden>
+          <div class="metric-grid" id="distribution-metrics"></div>
+          <div class="chart-grid"><div><div class="chart-heading"><h3>完成抽数分布</h3><span>PMF</span></div><div id="pmf-chart" class="chart" aria-label="恰好在各抽数完成目标的概率图"></div></div><div><div class="chart-heading"><h3>累计达成概率</h3><span>CDF</span></div><div id="cdf-chart" class="chart" aria-label="在各抽数内完成目标的累计概率图"></div></div></div>
+          <p class="field-help">金色虚线为均值，阴影为均值 ± 1σ；点线分别标记 50%、90%、99% 达成抽数。调整显示范围不会改变完整分布的统计结果。</p>
+          <div class="analysis-grid"><section class="subpanel"><h3>指定抽数下的完成概率</h3><div id="probability-table"></div></section><section class="subpanel"><h3>按达成概率反查抽数</h3><label for="percent-input">完成概率（%）</label><input id="percent-input" type="number" min="0" max="100" value="90" step="0.01"><p id="percent-result" class="calculation-result" role="status"></p><p class="field-help">取首次达到该概率的整数抽数。</p></section><section class="subpanel"><h3>区间完成概率</h3><div class="range-inputs"><div><label for="range-start">起始</label><input id="range-start" type="number" min="0" value="0" step="1"></div><span>—</span><div><label for="range-end">结束</label><input id="range-end" type="number" min="0" value="300" step="1"></div></div><p id="range-result" class="calculation-result" role="status"></p><p class="field-help">包含区间两端，计算恰好在区间内完成的概率。</p></section></div>
+          <details class="data-details"><summary>查看完整分布明细 <span>每一抽的 PMF / CDF</span></summary><div class="table-scroll"><table><thead><tr><th id="table-unit">抽数</th><th>恰好完成 · PMF</th><th>累计达成 · CDF</th></tr></thead><tbody id="distribution-rows"></tbody></table></div></details>
+        </div>
+      </div>
+      <div id="joint-panel" class="panel detail-panel" role="tabpanel" aria-labelledby="tab-joint" hidden>
+        <form id="joint-form"><div class="detail-controls"><div><label for="joint-pulls">本池干员抽数</label><input id="joint-pulls" type="number" min="1" max="720" step="1" value="120" required></div><div><label for="joint-character">干员目标数量</label><select id="joint-character"></select></div><div><label for="joint-weapon">武器目标数量</label><select id="joint-weapon"></select></div><button class="secondary" type="submit">计算联合概率 ↗</button></div></form>
+        <p class="field-help">从零水位开始，仅计算本池。将干员寻访所得武库配额兑换为武器十连；加急十连也产生配额，240 抽信物不产生配额。</p>
+        <div id="joint-metrics" class="metric-grid joint-metrics"></div><p id="joint-coverage" class="field-help" role="status"></p>
+        <div class="subpanel joint-inverse"><h3>反算最少干员抽数</h3><form id="joint-inverse-form"><div><label for="joint-percent">目标综合达成概率（%）</label><input id="joint-percent" type="number" min="0" max="99.99" step="0.01" value="90" required></div><button class="secondary" type="submit">反查抽数 ↗</button></form><p id="joint-inverse-result" class="calculation-result" role="status"></p></div>
+        <div class="chart-heading"><h3>联合达成概率</h3><span>1—720 抽</span></div><div id="joint-chart" class="chart" aria-label="角色武器联合达成累计概率图"></div>
+      </div>
+      <details class="rules panel"><summary>计算规则与适用范围 <span>了解保底、赠送与概率口径</span></summary><div class="rules-grid"><div><h3>干员寻访</h3><p>六星基础概率 0.8%，其中目标 UP 占 50%；连续 65 抽未出六星后，第 66 抽开始每抽提升 5 个百分点，第 80 抽必出六星。前 120 次常规寻访保证至少一次 UP，每累计 240 次常规寻访赠送一份信物。</p><p>首发第 30 抽赠送加急十连；首次复刻第 30、60、90 抽各赠送一次。加急按基础概率结算，不改变六星水位、120 保底状态或累计次数，获得的角色计入潜能。</p><p>本工具默认未持有目标角色、首次复刻、两池累计进度从零开始。首发与重构寻访使用各自的六星水位。同名复刻后续继承 120、240 及免费十连进度，不能再次重置领取。本工具不包含中途寻访其他卡池的收益。</p></div><div><h3>武器与联合目标</h3><p>武器以十连为单位：单抽六星 4%、UP 1%；连续三次十连没有六星，第四次保证六星；前七次十连未出 UP，第八次保证 UP。第 18 次十连及之后每 16 次直接赠送一份 UP 武器。</p><p>联合目标沿用按十连结算的武器模型。角色六／五／四星分别获得 2000／200／20 武库配额，每满 1980 配额可兑换一次武器十连，取整数次数。免费十连至少有一位五星或以上干员。联合计算保留概率质量并显示覆盖率。</p><h3>怎么看三档结果</h3><p>50%、90%、99% 都指“至少获得目标数量”的成功机会。目标潜能模式最小化总抽数；目标抽数模式优先最大化可达到的潜能，再最大化成功概率。完全等价的分配优先在本池抽取。概率不是必出承诺。</p></div></div><p class="rule-sources">规则依据：<a href="https://endfield.hypergryph.com/news/4776" target="_blank" rel="noopener">重构寻访官方说明 ↗</a><a href="https://endfield.hypergryph.com/news/8564" target="_blank" rel="noopener">加急招募保底说明 ↗</a><a href="https://endfield.hypergryph.com/news/6097" target="_blank" rel="noopener">特许寻访官方说明 ↗</a></p></details>
+    </section>
+  </main>
+  <footer class="wrap footer"><span>非官方工具 · 概率计算仅供规划参考</span><a href="https://github.com/BCSZSZ/endfield-draw-calculator" target="_blank" rel="noopener">开源于 GitHub ↗</a></footer>
+</body>
+</html>

@@ -120,16 +120,20 @@ def render_distribution_page(mode: str) -> None:
         idx = max(0, min(int(pulls), len(costs) - 1))
         return float(cdf[idx])
 
-    def estimate_pulls_for_prob(target_prob: float) -> float:
-        prev = 0.0
+    def estimate_pulls_for_prob(target_prob: float) -> int | None:
+        if target_prob == 1.0:
+            if mode == "干员抽卡":
+                guaranteed = 120 if target_copies == 1 else (target_copies - 1) * 240
+            else:
+                guaranteed = 8 if target_copies == 1 else 18 + (target_copies - 2) * 16
+            return guaranteed if guaranteed <= max_sim_pulls else None
         for i, value in enumerate(cdf):
             if value >= target_prob:
-                if value == prev:
-                    return float(i)
-                frac = (target_prob - prev) / (value - prev)
-                return float(i - 1) + frac
-            prev = float(value)
-        return float(len(cdf) - 1)
+                return i
+        return None
+
+    if result["check_sum"] < 1 - 1e-8:
+        st.info("当前计算范围未覆盖全部结果；均值与标准差为范围内完成的条件统计，请扩大范围查看完整分布。")
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("均值(Mean)", f"{mean:.2f}")
@@ -144,7 +148,7 @@ def render_distribution_page(mode: str) -> None:
     prob_at_mean_plus_std = cdf_at(mean_plus_std_ceiled)
 
     pulls_for_99 = estimate_pulls_for_prob(0.99)
-    pulls_for_99_ceiled = math.ceil(float(pulls_for_99))
+    pulls_for_99_ceiled = pulls_for_99 if pulls_for_99 is not None else "范围内未达到"
 
     st.subheader("指定抽数下的完成概率")
     st.markdown(f"**说明**：第一列为{unit_label}(向上取整)，第二列为完成概率。")
@@ -171,7 +175,7 @@ def render_distribution_page(mode: str) -> None:
         </tr>
         <tr>
             <td style="padding:6px; font-weight:700;">{pulls_for_99_ceiled}</td>
-            <td style="padding:6px; font-weight:700;">99%</td>
+            <td style="padding:6px; font-weight:700;">{f"{cdf[pulls_for_99] * 100:.6f}%" if pulls_for_99 is not None else "未覆盖"}</td>
         </tr>
     </tbody>
 </table>
@@ -184,10 +188,10 @@ def render_distribution_page(mode: str) -> None:
     )
     target_prob = percent_input / 100.0
     pulls_for_percent = estimate_pulls_for_prob(target_prob)
-    pulls_for_percent_ceiled = math.ceil(float(pulls_for_percent))
-    st.write(
-        f"完成概率 {percent_input:.2f}% 对应{unit_label}≈{float(pulls_for_percent):.4f}，向上取整{unit_label}={pulls_for_percent_ceiled}"
-    )
+    if pulls_for_percent is None:
+        st.warning("当前范围内未达到该完成概率，请扩大计算范围。")
+    else:
+        st.write(f"完成概率 {percent_input:.2f}% 对应最少{unit_label}={pulls_for_percent}")
 
     st.subheader("区间概率")
     range_col1, range_col2 = st.columns(2)
@@ -225,7 +229,8 @@ def render_distribution_page(mode: str) -> None:
         x0=lower, x1=upper, fillcolor=THEME["accent_alt"], opacity=0.12, line_width=0
     )
     for key in ["p25", "p50", "p75", "p99"]:
-        pmf_fig.add_vline(x=result[key], line_dash="dot", line_color=THEME["accent_alt"])
+        if result[key] is not None:
+            pmf_fig.add_vline(x=result[key], line_dash="dot", line_color=THEME["accent_alt"])
 
     pmf_fig.update_layout(
         title=f"离散概率(PMF) (target={target_copies})",
@@ -251,7 +256,8 @@ def render_distribution_page(mode: str) -> None:
         x0=lower, x1=upper, fillcolor=THEME["accent_alt"], opacity=0.12, line_width=0
     )
     for key in ["p25", "p50", "p75", "p99"]:
-        cdf_fig.add_vline(x=result[key], line_dash="dot", line_color=THEME["accent_alt"])
+        if result[key] is not None:
+            cdf_fig.add_vline(x=result[key], line_dash="dot", line_color=THEME["accent_alt"])
     cdf_fig.update_layout(
         title=f"累计分布(CDF) (target={target_copies})",
         xaxis_title=xaxis_label,
@@ -272,10 +278,10 @@ def render_distribution_page(mode: str) -> None:
         st.subheader("数学模型与规则说明")
         st.markdown(
             """
-- **模型**：使用离散时间马尔可夫链 DP，状态为 `(6星水位, 已获得UP数)`，逐抽更新概率质量。
-- **基础概率**：6星基础概率为 0.8%，66 抽后每抽增加 5%，80 抽小保底为“抽卡出货”的 6 星；6 星中 UP 占 50%。
+- **模型**：使用离散时间马尔可夫链 DP，状态为 `(6星水位, 常规寻访已出UP标记, 已获得UP数)`，逐抽更新概率质量。
+- **基础概率**：6星基础概率为 0.8%，第 66 抽开始每抽增加 5%，80 抽小保底为“抽卡出货”的 6 星；6 星中 UP 占 50%。
 - **5星/4星层**：5 星基础 8%，若达到 10 抽未出 5 星则该抽保底至少 5 星。
-- **保底与赠送区分**：120 抽首发大保底属于“抽卡出货”（若仍 0 UP 则视作本抽补出 1 个 UP）；每 240 抽循环是“额外赠送”1 个 UP，不是抽卡出货。
+- **保底与赠送区分**：120 抽首发大保底属于“抽卡出货”（若常规寻访此前未出 UP 则该抽必出 UP，免费出货不消耗此保底）；每 240 抽循环是“额外赠送”1 个 UP，不是抽卡出货。
 - **30抽规则**：30 抽触发一次“赠送 10 连”（按单抽 UP=0.4% 的二项分布入模），属于活动额外结算，不改变抽卡定义。
 - **前提**：本页默认初始水位来自侧边栏输入，结果为精确分布（非蒙特卡洛），显示 PMF/CDF、均值与分位点。
 """

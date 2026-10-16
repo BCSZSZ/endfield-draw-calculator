@@ -24,3 +24,9 @@ Thumbs.db
 
 # Editor
 .vscode/
+
+# Generated GitHub Pages probability data and vendored chart runtime
+site/data/
+site/vendor/
+tests/.generated/
+artifacts/ui-review/

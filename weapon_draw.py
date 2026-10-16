@@ -133,40 +133,12 @@ def calculate_weapon_full_potential(target_copies=6, max_sim_pulls=70):
 
         dp = new_dp
 
-        if np.sum(dp) < 1e-9:
+        if np.sum(dp) == 0.0:
             break
 
-    total_prob = np.sum(finish_probs)
-    costs = np.arange(max_sim_pulls + 1)
+    from draw_model import distribution_statistics
 
-    expected_value = np.sum(costs * finish_probs)
-    expected_sq = np.sum((costs**2) * finish_probs)
-    variance = expected_sq - (expected_value**2)
-    std_dev = np.sqrt(variance)
-
-    lower = max(0, int(np.ceil(expected_value - std_dev)))
-    upper = min(max_sim_pulls, int(np.floor(expected_value + std_dev)))
-    within_one_std = np.sum(finish_probs[lower : upper + 1])
-
-    cdf = np.cumsum(finish_probs)
-
-    def get_percentile(p):
-        return int(np.searchsorted(cdf, p))
-
-    return {
-        "costs": costs,
-        "finish_probs": finish_probs,
-        "mean": expected_value,
-        "variance": variance,
-        "std_dev": std_dev,
-        "p25": get_percentile(0.25),
-        "p50": get_percentile(0.50),
-        "p75": get_percentile(0.75),
-        "p99": get_percentile(0.99),
-        "check_sum": total_prob,
-        "within_one_std": within_one_std,
-        "one_std_range": (lower, upper),
-    }
+    return distribution_statistics(np.cumsum(finish_probs))
 
 
 def print_result(target_copies, result):
